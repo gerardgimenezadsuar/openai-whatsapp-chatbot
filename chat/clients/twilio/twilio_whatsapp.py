@@ -113,7 +113,7 @@ class TwilioWhatsAppClient(ChatClient):
             return message.send(self.client)
         except Exception as e:
             if on_failure is not None:
-                if isinstance(on_failure, callable):
+                if callable(on_failure):
                     return on_failure(e, **kwargs)
                 return on_failure
             else:

@@ -1,7 +1,8 @@
 import tempfile
+import os
 from typing import List, Union
 
-import openai
+from openai import OpenAI
 import requests
 
 from chat.clients import ChatClient
@@ -37,14 +38,20 @@ def voice_transcription(
         f.write(audio)
         url_or_file = f.name
 
-    params = dict(file=url_or_file,  model=model,  prompt=prompt, language=language, 
-                  response_format='json', **kwargs)
-
-    if asynch:
-        return openai.Audio.atranscribe(**params)
+    # Initialize the OpenAI client
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
     
-    response = openai.Audio.transcribe(**params)
-    return response.get("text")
+    with open(url_or_file, 'rb') as audio_file:
+        response = client.audio.transcriptions.create(
+            file=audio_file,
+            model=model,
+            prompt=prompt,
+            language=language,
+            response_format='json',
+            **kwargs
+        )
+    
+    return response.text
 
 def voice_translation(
     url_or_file: str,

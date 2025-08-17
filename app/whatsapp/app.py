@@ -27,12 +27,12 @@ logger.setLevel(logging.DEBUG)
 
 # chat agent configuration
 start_template = os.environ.get("CHAT_START_TEMPLATE")
-if os.path.exists(start_template):
+if start_template and os.path.exists(start_template):
     with open(start_template, "r") as f:
         start_template = f.read()
 
 chat_options = dict(
-    model=os.environ.get("CHAT_MODEL", "gpt-3.5-turbo"),
+    model=os.environ.get("CHAT_MODEL", "llama-3.3-70b-versatile"),
     agent_name=os.environ.get("AGENT_NAME"),
     start_system_message=start_template,
     goodbye_message="Goodbye! I'll be here if you need me.",
@@ -40,12 +40,12 @@ chat_options = dict(
     allow_images=True,
 )
 model_options = dict(
-    model=os.environ.get("CHAT_MODEL", "gpt-3.5-turbo"),
+    model=os.environ.get("CHAT_MODEL", "llama-3.3-70b-versatile"),
     max_tokens=int(os.environ.get("MAX_TOKENS", 1000)),
-    temperature=os.environ.get("TEMPERATURE", 1.2),
-    top_p=int(os.environ.get("TOP_P", 1)),
-    frequency_penalty=os.environ.get("FREQUENCY_PENALTY", 0.3),
-    presence_penalty=os.environ.get("PRESENCE_PENALTY", 0.1),
+    temperature=float(os.environ.get("TEMPERATURE", 0.7)),
+    top_p=float(os.environ.get("TOP_P", 1)),
+    frequency_penalty=float(os.environ.get("FREQUENCY_PENALTY", 0)),
+    presence_penalty=float(os.environ.get("PRESENCE_PENALTY", 0)),
     n=1,
 )
 
@@ -69,10 +69,11 @@ async def reply_to_whatsapp_message():
         name=request.values.get("ProfileName", request.values.get("From")),
     )
     chat = OpenAIChatManager.get_or_create(sender, logger=logger, **chat_options)
-    chat.start_system_message = chat_options.get("start_system_message").format(
-        user=sender.name, today=datetime.now().strftime("%Y-%m-%d")
-    )
-    chat.messages[0] = chat.make_message(chat.start_system_message, role="system")
+    if chat_options.get("start_system_message"):
+        chat.start_system_message = chat_options.get("start_system_message").format(
+            user=sender.name, today=datetime.now().strftime("%Y-%m-%d")
+        )
+        chat.messages[0] = chat.make_message(chat.start_system_message, role="system")
     # parse and process the message
     new_message = chat_client.parse_request_values(request.values)
     msg = verify_and_process_media(new_message, chat)
@@ -89,12 +90,25 @@ async def reply_to_whatsapp_message():
     logger.info(f"Generated reply of length {len(reply)}")
     # check if the reply is requesting an image generation
     reply, img_prompt = verify_image_generation(reply)
-    # send the reply
-    chat_client.send_message(
-        reply,
-        chat.sender.phone_number,
-        on_failure="Sorry, I didn't understand that. Please try again.",
-    )
+    # send the reply (WhatsApp has a 1600 character limit)
+    if len(reply) > 1600:
+        # Split into multiple messages if too long
+        for i in range(0, len(reply), 1500):
+            chunk = reply[i:i+1500]
+            # Add ellipsis if not the last chunk
+            if i + 1500 < len(reply):
+                chunk += "..."
+            chat_client.send_message(
+                chunk,
+                chat.sender.phone_number,
+                on_failure="Sorry, I didn't understand that. Please try again.",
+            )
+    else:
+        chat_client.send_message(
+            reply,
+            chat.sender.phone_number,
+            on_failure="Sorry, I didn't understand that. Please try again.",
+        )
     # add the reply to the chat
     chat.add_message(reply, role="assistant")
     # if the reply was requesting an image generation, send the image
